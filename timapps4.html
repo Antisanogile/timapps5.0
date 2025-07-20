@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>到達圏マップ＋施設検索＋色分け</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+  #map { height: 100vh; }
+  .control {
+    position: absolute; top: 10px; left: 10px; background: white; padding: 10px; z-index: 1000;
+    max-height: 95vh; overflow-y: auto; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="control">
+  <h4>到達圏マップ</h4>
+  <button onclick="getIsochrone()">ここから行ける範囲を表示</button><br><br>
+
+  <label>交通手段:</label>
+  <select id="profile">
+    <option value="driving-car">車</option>
+    <option value="foot-walking">徒歩</option>
+  </select><br><br>
+
+  <label>時間（分）:</label>
+  <input type="range" id="minutes" min="5" max="60" value="30" oninput="updateLabel()">
+  <span id="minLabel">30</span>分<br><br>
+
+  <label>色:</label>
+  <input type="color" id="colorPicker" value="#0000ff"><br><br>
+
+  <label>名前:</label>
+  <input type="text" id="zoneName" placeholder="例：30分圏内"><br><br>
+
+  <label><input type="checkbox" id="clearPrevious" checked> 前の範囲を消す</label><br><br>
+
+  <h4>施設検索</h4>
+  <label><input type="checkbox" class="poi" value="convenience"> コンビニ</label><br>
+  <label><input type="checkbox" class="poi" value="parking"> 駐車場</label><br>
+  <label><input type="checkbox" class="poi" value="hospital"> 病院</label><br>
+  <label><input type="checkbox" class="poi" value="police"> 交番</label><br>
+  <label><input type="checkbox" class="poi" value="toilets"> トイレ</label><br>
+  <label><input type="checkbox" class="poi" value="supermarket"> スーパー</label><br>
+  <label><input type="checkbox" class="poi" value="park"> 公園</label><br>
+  <label><input type="checkbox" class="poi" value="restaurant"> 飲食店</label><br>
+  <label><input type="checkbox" class="poi" value="cafe"> カフェ</label><br><br>
+
+  <button onclick="searchPOI()">施設を検索</button>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+const apiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZkZTkzY2JjYWMyNzRjMjU5NDcyYmIxYzkxOGNjZjkyIiwiaCI6Im11cm11cjY0In0=";
+
+const map = L.map('map').setView([35.681236, 139.767125], 12); // 東京駅
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let marker;
+let layers = []; // 到達圏レイヤー
+let poiMarkers = []; // 施設マーカー
+
+function updateLabel() {
+  document.getElementById("minLabel").innerText = document.getElementById("minutes").value;
+}
+
+function getIsochrone() {
+  const clear = document.getElementById("clearPrevious").checked;
+
+  if (marker && clear) { map.removeLayer(marker); }
+  if (clear) {
+    layers.forEach(l => map.removeLayer(l));
+    layers = [];
+    poiMarkers.forEach(m => map.removeLayer(m));
+    poiMarkers = [];
+  }
+
+  const center = map.getCenter();
+  const lat = center.lat;
+  const lng = center.lng;
+
+  marker = L.marker([lat, lng]).addTo(map);
+
+  const profile = document.getElementById("profile").value;
+  const minutes = document.getElementById("minutes").value;
+  const seconds = minutes * 60;
+
+  const color = document.getElementById("colorPicker").value;
+  const name = document.getElementById("zoneName").value || `${minutes}分圏`;
+
+  const url = `https://api.openrouteservice.org/v2/isochrones/${profile}`;
+
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      locations: [[lng, lat]],
+      range: [seconds],
+      units: "m"
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    const layer = L.geoJSON(data, {
+      style: {color: color, opacity: 0.4, fillOpacity: 0.2}
+    }).addTo(map);
+    layers.push(layer);
+
+    // ラベル表示（ポリゴンの重心に）
+    const coords = data.features[0].geometry.coordinates[0];
+    let sumLat = 0, sumLng = 0;
+    coords.forEach(c => { sumLat += c[1]; sumLng += c[0]; });
+    const centerLat = sumLat / coords.length;
+    const centerLng = sumLng / coords.length;
+
+    L.marker([centerLat, centerLng], {icon: L.divIcon({className: '', html: `<b>${name}</b>`, iconSize: [100,20]})}).addTo(map);
+  })
+  .catch(err => alert("エラー：" + err));
+}
+
+function searchPOI() {
+  if (layers.length === 0) {
+    alert("先に範囲を描いてください");
+    return;
+  }
+
+  const selected = Array.from(document.querySelectorAll('.poi:checked')).map(el => el.value);
+  if (selected.length === 0) {
+    alert("施設カテゴリを選んでください");
+    return;
+  }
+
+  const polyCoords = layers[layers.length -1].toGeoJSON().features[0].geometry.coordinates[0];
+  const polyStr = polyCoords.map(c => c[1] + " " + c[0]).join(" ");
+
+  let query = `[out:json][timeout:25];
+  (
+  `;
+
+  selected.forEach(type => {
+    switch(type) {
+      case 'convenience':
+        query += `node["shop"="convenience"](poly:"${polyStr}");\n`;
+        break;
+      case 'parking':
+        query += `node["amenity"="parking"](poly:"${polyStr}");\n`;
+        break;
+      case 'hospital':
+        query += `node["amenity"="hospital"](poly:"${polyStr}");\n`;
+        break;
+      case 'police':
+        query += `node["amenity"="police"](poly:"${polyStr}");\n`;
+        break;
+      case 'toilets':
+        query += `node["amenity"="toilets"](poly:"${polyStr}");\n`;
+        break;
+      case 'supermarket':
+        query += `node["shop"="supermarket"](poly:"${polyStr}");\n`;
+        break;
+      case 'park':
+        query += `node["leisure"="park"](poly:"${polyStr}");\n`;
+        break;
+      case 'restaurant':
+        query += `node["amenity"="restaurant"](poly:"${polyStr}");\n`;
+        break;
+      case 'cafe':
+        query += `node["amenity"="cafe"](poly:"${polyStr}");\n`;
+        break;
+    }
+  });
+
+  query += `
+  );
+  out center;`;
+
+  fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    body: query
+  })
+  .then(response => response.json())
+  .then(data => {
+    data.elements.forEach(el => {
+      const name = el.tags.name || "(名称なし)";
+      const marker = L.marker([el.lat, el.lon])
+        .addTo(map)
+        .bindPopup(name);
+      poiMarkers.push(marker);
+    });
+  })
+  .catch(err => alert("検索エラー：" + err));
+}
+</script>
+
+</body>
+</html>
