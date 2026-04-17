@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>到達圏マップ＋施設検索</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    :root {
+      --panel-bg: rgba(255, 255, 255, 0.96);
+      --border: #d9dee8;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --secondary: #f3f4f6;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #eef2f7;
+    }
+
+    #map {
+      width: 100%;
+      height: 100dvh;
+    }
+
+    .control {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      width: min(380px, calc(100vw - 24px));
+      max-height: calc(100dvh - 24px);
+      overflow-y: auto;
+      background: var(--panel-bg);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+      backdrop-filter: blur(10px);
+    }
+
+    h3, h4 {
+      margin: 0 0 10px;
+    }
+
+    .section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .field {
+      margin-bottom: 10px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input[type="text"],
+    select,
+    input[type="color"],
+    input[type="range"],
+    button {
+      width: 100%;
+      font-size: 16px;
+    }
+
+    input[type="text"],
+    select {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+
+    input[type="color"] {
+      height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 4px;
+      background: #fff;
+    }
+
+    input[type="range"] {
+      margin: 6px 0 0;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      transition: transform 0.12s ease, background 0.12s ease;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .secondary {
+      background: var(--secondary);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .small {
+      padding: 7px 10px;
+      font-size: 13px;
+      width: auto;
+    }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .inline-help {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    .checkbox-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 10px;
+      margin-top: 6px;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .checkbox-item label {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .meta-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .legend-list,
+    .history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .legend-item,
+    .history-item {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .legend-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .legend-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .color-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+
+    .legend-name {
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .legend-meta {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      background: #f3f4f6;
+      border-radius: 999px;
+      padding: 4px 8px;
+    }
+
+    .zone-label {
+      background: transparent;
+      border: none;
+    }
+
+    .zone-label span {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+    }
+
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    .danger {
+      color: #b91c1c;
+      font-size: 12px;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 768px) {
+      .control {
+        top: auto;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: auto;
+        max-height: 50dvh;
+        padding: 16px;
+        border-radius: 22px;
+      }
+
+      .row,
+      .button-grid,
+      .checkbox-list {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="control">
+    <h3>到達圏マップ</h3>
+    <div class="inline-help">地図中心または現在地から到達圏を追加し、施設を検索できます。</div>
+
+    <div class="section">
+      <div class="button-grid">
+        <button type="button" onclick="getCurrentLocation()">現在地を使う</button>
+        <button type="button" class="secondary" onclick="focusMapCenter()">地図中心を使う</button>
+      </div>
+      <div class="status" id="locationStatus">初期位置は東京駅です。</div>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <div class="field">
+          <label for="profile">交通手段</label>
+          <select id="profile">
+            <option value="driving-car">車</option>
+            <option value="foot-walking">徒歩</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="colorPicker">色</label>
+          <input type="color" id="colorPicker" value="#2563eb" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="minutes">時間（分）: <span id="minLabel">30</span>分</label>
+        <input type="range" id="minutes" min="5" max="60" value="30" oninput="updateLabel()" />
+      </div>
+
+      <div class="field">
+        <label for="zoneName">到達圏の名前</label>
+        <input type="text" id="zoneName" placeholder="例：30分圏・営業候補A" />
+      </div>
+
+      <div class="checkbox-item" style="margin-bottom: 10px;">
+        <input type="checkbox" id="clearPrevious" />
+        <label for="clearPrevious">追加前に既存の到達圏と施設を消す</label>
+      </div>
+
+      <div class="button-grid">
+        <button type="button" onclick="getIsochrone()">到達圏を追加</button>
+        <button type="button" class="secondary" onclick="clearAllZones()">到達圏を全削除</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="meta-line">
+        <h4>到達圏一覧</h4>
+        <span id="zoneCount">0件</span>
+      </div>
+      <div class="legend-list" id="zoneLegend">
+        <div class="status">まだ到達圏はありません。</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="meta-line">
+        <h4>施設検索</h4>
+      </div>
+
+      <div class="field">
+        <label for="targetZone">検索対象の到達圏</label>
+        <select id="targetZone">
+          <option value="">到達圏を追加してください</option>
+        </select>
+      </div>
+
+      <div class="checkbox-item" style="margin-bottom: 10px;">
+        <input type="checkbox" id="clearPoiBeforeSearch" checked />
+        <label for="clearPoiBeforeSearch">検索前に前回の施設結果を消す</label>
+      </div>
+
+      <div class="checkbox-list">
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-convenience" value="convenience"><label for="poi-convenience">コンビニ</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-parking" value="parking"><label for="poi-parking">駐車場</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-hospital" value="hospital"><label for="poi-hospital">病院</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-police" value="police"><label for="poi-police">交番</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-toilets" value="toilets"><label for="poi-toilets">トイレ</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-supermarket" value="supermarket"><label for="poi-supermarket">スーパー</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-park" value="park"><label for="poi-park">公園</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-restaurant" value="restaurant"><label for="poi-restaurant">飲食店</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-cafe" value="cafe"><label for="poi-cafe">カフェ</label></div>
+        <div class="checkbox-item"><input type="checkbox" class="poi" id="poi-station" value="station"><label for="poi-station">駅</label></div>
+      </div>
+
+      <div class="button-grid" style="margin-top: 12px;">
+        <button type="button" onclick="searchPOI()">施設を検索</button>
+        <button type="button" class="secondary" onclick="clearPOIMarkers()">施設表示を消す</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="meta-line">
+        <h4>検索履歴</h4>
+        <button type="button" class="secondary small" onclick="clearHistory()">履歴クリア</button>
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="status">まだ履歴はありません。</div>
+      </div>
+    </div>
+
+    <div class="danger">公開時は OpenRouteService の API キーを HTML に直書きしない構成にするのがおすすめです。</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZkZTkzY2JjYWMyNzRjMjU5NDcyYmIxYzkxOGNjZjkyIiwiaCI6Im11cm11cjY0In0=";
+    const HISTORY_KEY = "timapps-history-v1";
+
+    const CATEGORY_LABELS = {
+      convenience: "コンビニ",
+      parking: "駐車場",
+      hospital: "病院",
+      police: "交番",
+      toilets: "トイレ",
+      supermarket: "スーパー",
+      park: "公園",
+      restaurant: "飲食店",
+      cafe: "カフェ",
+      station: "駅"
+    };
+
+    const PROFILE_LABELS = {
+      "driving-car": "車",
+      "foot-walking": "徒歩"
+    };
+
+    const map = L.map("map").setView([35.681236, 139.767125], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    let centerMarker = null;
+    let zones = [];
+    let poiMarkers = [];
+    let zoneCounter = 0;
+
+    updateLabel();
+    renderZoneLegend();
+    renderZoneSelect();
+    renderHistory();
+
+    function updateLabel() {
+      document.getElementById("minLabel").textContent = document.getElementById("minutes").value;
+    }
+
+    function focusMapCenter() {
+      const center = map.getCenter();
+      setCenterMarker(center.lat, center.lng, "地図中心を選択中");
+      setLocationStatus(`地図中心を使用中: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`);
+      addHistory("地図中心を選択");
+    }
+
+    function getCurrentLocation() {
+      if (!navigator.geolocation) {
+        alert("この端末では現在地取得に対応していません");
+        return;
+      }
+
+      setLocationStatus("現在地を取得しています...");
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          map.setView([lat, lng], 14);
+          setCenterMarker(lat, lng, "現在地");
+          setLocationStatus(`現在地を取得しました: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          addHistory("現在地を取得");
+        },
+        (error) => {
+          const messages = {
+            1: "位置情報の利用が許可されていません",
+            2: "位置情報を取得できませんでした",
+            3: "位置情報の取得がタイムアウトしました"
+          };
+          const msg = messages[error.code] || "位置情報の取得に失敗しました";
+          setLocationStatus(msg);
+          alert(msg);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    }
+
+    function setCenterMarker(lat, lng, popupText) {
+      if (centerMarker) {
+        map.removeLayer(centerMarker);
+      }
+      centerMarker = L.marker([lat, lng]).addTo(map);
+      if (popupText) {
+        centerMarker.bindPopup(popupText).openPopup();
+      }
+    }
+
+    function setLocationStatus(text) {
+      document.getElementById("locationStatus").textContent = text;
+    }
+
+    function clearAllZones() {
+      zones.forEach(zone => {
+        map.removeLayer(zone.layer);
+        map.removeLayer(zone.labelMarker);
+      });
+      zones = [];
+      renderZoneLegend();
+      renderZoneSelect();
+      clearPOIMarkers(false);
+      addHistory("到達圏を全削除");
+    }
+
+    function clearPOIMarkers(addLog = true) {
+      poiMarkers.forEach(marker => map.removeLayer(marker));
+      poiMarkers = [];
+      if (addLog) addHistory("施設表示をクリア");
+    }
+
+    async function getIsochrone() {
+      if (!ORS_API_KEY || ORS_API_KEY === "YOUR_OPENROUTESERVICE_API_KEY") {
+        alert("OpenRouteService の API キーを設定してください");
+        return;
+      }
+
+      if (document.getElementById("clearPrevious").checked) {
+        clearAllZones();
+      }
+
+      const center = map.getCenter();
+      const lat = center.lat;
+      const lng = center.lng;
+      setCenterMarker(lat, lng, "到達圏の基点");
+
+      const profile = document.getElementById("profile").value;
+      const minutes = Number(document.getElementById("minutes").value);
+      const color = document.getElementById("colorPicker").value;
+      const customName = document.getElementById("zoneName").value.trim();
+      const zoneName = customName || `${minutes}分圏`;
+
+      const url = `https://api.openrouteservice.org/v2/isochrones/${profile}`;
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: ORS_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            locations: [[lng, lat]],
+            range: [minutes * 60],
+            units: "m"
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`到達圏取得に失敗しました (${response.status})`);
+        }
+
+        const data = await response.json();
+        if (!data.features || !data.features.length) {
+          throw new Error("到達圏データが返ってきませんでした");
+        }
+
+        const geojson = data.features[0];
+        const layer = L.geoJSON(geojson, {
+          style: {
+            color,
+            weight: 3,
+            opacity: 0.95,
+            fillOpacity: 0.2
+          }
+        }).addTo(map);
+
+        const centerPoint = layer.getBounds().getCenter();
+        const labelMarker = L.marker(centerPoint, {
+          interactive: false,
+          icon: L.divIcon({
+            className: "zone-label",
+            html: `<span>${escapeHtml(zoneName)}</span>`
+          })
+        }).addTo(map);
+
+        const id = `zone-${Date.now()}-${zoneCounter++}`;
+        zones.push({
+          id,
+          name: zoneName,
+          color,
+          minutes,
+          profile,
+          layer,
+          labelMarker,
+          geojson
+        });
+
+        renderZoneLegend();
+        renderZoneSelect(id);
+        map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+        addHistory(`到達圏を追加: ${zoneName} / ${PROFILE_LABELS[profile]} / ${minutes}分`);
+      } catch (err) {
+        alert("エラー: " + err.message);
+      }
+    }
+
+    function renderZoneLegend() {
+      const zoneLegend = document.getElementById("zoneLegend");
+      const zoneCount = document.getElementById("zoneCount");
+      zoneCount.textContent = `${zones.length}件`;
+
+      if (!zones.length) {
+        zoneLegend.innerHTML = '<div class="status">まだ到達圏はありません。</div>';
+        return;
+      }
+
+      zoneLegend.innerHTML = zones.map(zone => `
+        <div class="legend-item">
+          <div class="legend-top">
+            <div class="legend-left">
+              <span class="color-dot" style="background:${zone.color}"></span>
+              <div class="legend-name">${escapeHtml(zone.name)}</div>
+            </div>
+            <div>
+              <button type="button" class="secondary small" onclick="deleteZone('${zone.id}')">削除</button>
+            </div>
+          </div>
+          <div class="legend-meta">
+            <span class="chip">${PROFILE_LABELS[zone.profile]}</span>
+            <span class="chip">${zone.minutes}分</span>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderZoneSelect(selectedId = "") {
+      const targetZone = document.getElementById("targetZone");
+      if (!zones.length) {
+        targetZone.innerHTML = '<option value="">到達圏を追加してください</option>';
+        return;
+      }
+
+      targetZone.innerHTML = zones.map(zone => `
+        <option value="${zone.id}">${escapeHtml(zone.name)}（${PROFILE_LABELS[zone.profile]} / ${zone.minutes}分）</option>
+      `).join("");
+
+      if (selectedId) {
+        targetZone.value = selectedId;
+      } else {
+        targetZone.value = zones[zones.length - 1].id;
+      }
+    }
+
+    function deleteZone(id) {
+      const index = zones.findIndex(zone => zone.id === id);
+      if (index === -1) return;
+
+      const [zone] = zones.splice(index, 1);
+      map.removeLayer(zone.layer);
+      map.removeLayer(zone.labelMarker);
+      renderZoneLegend();
+      renderZoneSelect();
+      addHistory(`到達圏を削除: ${zone.name}`);
+    }
+
+    async function searchPOI() {
+      if (!zones.length) {
+        alert("先に到達圏を追加してください");
+        return;
+      }
+
+      const selectedTypes = Array.from(document.querySelectorAll(".poi:checked")).map(el => el.value);
+      if (!selectedTypes.length) {
+        alert("施設カテゴリを選んでください");
+        return;
+      }
+
+      const selectedZoneId = document.getElementById("targetZone").value;
+      const zone = zones.find(z => z.id === selectedZoneId) || zones[zones.length - 1];
+      if (!zone) {
+        alert("検索対象の到達圏を選んでください");
+        return;
+      }
+
+      if (document.getElementById("clearPoiBeforeSearch").checked) {
+        clearPOIMarkers(false);
+      }
+
+      const ring = getOuterRing(zone.geojson.geometry);
+      if (!ring.length) {
+        alert("検索対象ポリゴンの取得に失敗しました");
+        return;
+      }
+
+      const polyStr = ring.map(coord => `${coord[1]} ${coord[0]}`).join(" ");
+      let query = `[out:json][timeout:25];\n(\n`;
+
+      selectedTypes.forEach(type => {
+        query += buildOverpassQuery(type, polyStr);
+      });
+
+      query += `);\nout center;`;
+
+      try {
+        const response = await fetch("https://overpass-api.de/api/interpreter", {
+          method: "POST",
+          body: query
+        });
+
+        if (!response.ok) {
+          throw new Error(`施設検索に失敗しました (${response.status})`);
+        }
+
+        const data = await response.json();
+        let count = 0;
+
+        data.elements.forEach(el => {
+          const lat = el.lat ?? el.center?.lat;
+          const lon = el.lon ?? el.center?.lon;
+          if (typeof lat !== "number" || typeof lon !== "number") return;
+
+          const tags = el.tags || {};
+          const category = detectCategory(tags, selectedTypes);
+          const categoryLabel = CATEGORY_LABELS[category] || "施設";
+          const name = tags.name || categoryLabel;
+
+          const marker = L.circleMarker([lat, lon], {
+            radius: 7,
+            color: zone.color,
+            fillColor: zone.color,
+            fillOpacity: 0.85,
+            weight: 1
+          })
+            .addTo(map)
+            .bindPopup(`
+              <strong>${escapeHtml(name)}</strong><br>
+              種別: ${escapeHtml(categoryLabel)}
+            `);
+
+          poiMarkers.push(marker);
+          count += 1;
+        });
+
+        addHistory(`施設検索: ${zone.name} / ${selectedTypes.map(type => CATEGORY_LABELS[type]).join("、")} / ${count}件`);
+
+        if (count === 0) {
+          alert("該当施設は見つかりませんでした");
+        }
+      } catch (err) {
+        alert("検索エラー: " + err.message);
+      }
+    }
+
+    function buildOverpassQuery(type, polyStr) {
+      switch (type) {
+        case "convenience":
+          return `node["shop"="convenience"](poly:"${polyStr}");\n`;
+        case "parking":
+          return `node["amenity"="parking"](poly:"${polyStr}");\nway["amenity"="parking"](poly:"${polyStr}");\nrelation["amenity"="parking"](poly:"${polyStr}");\n`;
+        case "hospital":
+          return `node["amenity"="hospital"](poly:"${polyStr}");\nway["amenity"="hospital"](poly:"${polyStr}");\nrelation["amenity"="hospital"](poly:"${polyStr}");\n`;
+        case "police":
+          return `node["amenity"="police"](poly:"${polyStr}");\nway["amenity"="police"](poly:"${polyStr}");\nrelation["amenity"="police"](poly:"${polyStr}");\n`;
+        case "toilets":
+          return `node["amenity"="toilets"](poly:"${polyStr}");\nway["amenity"="toilets"](poly:"${polyStr}");\nrelation["amenity"="toilets"](poly:"${polyStr}");\n`;
+        case "supermarket":
+          return `node["shop"="supermarket"](poly:"${polyStr}");\nway["shop"="supermarket"](poly:"${polyStr}");\nrelation["shop"="supermarket"](poly:"${polyStr}");\n`;
+        case "park":
+          return `node["leisure"="park"](poly:"${polyStr}");\nway["leisure"="park"](poly:"${polyStr}");\nrelation["leisure"="park"](poly:"${polyStr}");\n`;
+        case "restaurant":
+          return `node["amenity"="restaurant"](poly:"${polyStr}");\nway["amenity"="restaurant"](poly:"${polyStr}");\nrelation["amenity"="restaurant"](poly:"${polyStr}");\n`;
+        case "cafe":
+          return `node["amenity"="cafe"](poly:"${polyStr}");\nway["amenity"="cafe"](poly:"${polyStr}");\nrelation["amenity"="cafe"](poly:"${polyStr}");\n`;
+        case "station":
+          return `node["railway"="station"](poly:"${polyStr}");\nway["railway"="station"](poly:"${polyStr}");\nrelation["railway"="station"](poly:"${polyStr}");\nnode["public_transport"="station"](poly:"${polyStr}");\nway["public_transport"="station"](poly:"${polyStr}");\nrelation["public_transport"="station"](poly:"${polyStr}");\n`;
+        default:
+          return "";
+      }
+    }
+
+    function getOuterRing(geometry) {
+      if (!geometry) return [];
+      if (geometry.type === "Polygon") {
+        return geometry.coordinates[0] || [];
+      }
+      if (geometry.type === "MultiPolygon") {
+        return geometry.coordinates[0]?.[0] || [];
+      }
+      return [];
+    }
+
+    function detectCategory(tags, selectedTypes) {
+      if ((tags.railway === "station" || tags.public_transport === "station") && selectedTypes.includes("station")) return "station";
+      if (tags.shop === "convenience" && selectedTypes.includes("convenience")) return "convenience";
+      if (tags.amenity === "parking" && selectedTypes.includes("parking")) return "parking";
+      if (tags.amenity === "hospital" && selectedTypes.includes("hospital")) return "hospital";
+      if (tags.amenity === "police" && selectedTypes.includes("police")) return "police";
+      if (tags.amenity === "toilets" && selectedTypes.includes("toilets")) return "toilets";
+      if (tags.shop === "supermarket" && selectedTypes.includes("supermarket")) return "supermarket";
+      if (tags.leisure === "park" && selectedTypes.includes("park")) return "park";
+      if (tags.amenity === "restaurant" && selectedTypes.includes("restaurant")) return "restaurant";
+      if (tags.amenity === "cafe" && selectedTypes.includes("cafe")) return "cafe";
+      return selectedTypes[0] || "facility";
+    }
+
+    function addHistory(action) {
+      const items = loadHistory();
+      items.unshift({
+        time: new Date().toLocaleString("ja-JP"),
+        action
+      });
+      const trimmed = items.slice(0, 20);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+      renderHistory();
+    }
+
+    function loadHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      } catch {
+        return [];
+      }
+    }
+
+    function renderHistory() {
+      const historyList = document.getElementById("historyList");
+      const items = loadHistory();
+
+      if (!items.length) {
+        historyList.innerHTML = '<div class="status">まだ履歴はありません。</div>';
+        return;
+      }
+
+      historyList.innerHTML = items.map(item => `
+        <div class="history-item">
+          <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">${escapeHtml(item.time)}</div>
+          <div style="font-size:14px;line-height:1.5;">${escapeHtml(item.action)}</div>
+        </div>
+      `).join("");
+    }
+
+    function clearHistory() {
+      localStorage.removeItem(HISTORY_KEY);
+      renderHistory();
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+  </script>
+</body>
+</html>
